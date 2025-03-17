@@ -1,4 +1,4 @@
-# Openssl with QUIC
+# build openssl with QUIC
 FROM alpine:3.21 AS openssl
 
 RUN apk add --no-cache \
@@ -17,10 +17,8 @@ RUN git clone --depth 1 -b OpenSSL_1_1_1o+quic --recurse-submodules -j $(nproc) 
 
 WORKDIR /working/source/
 
-RUN <<EOF
-mkdir -p /install/openssl/
-./config \
-    --prefix=/install/openssl/ \
+RUN ./config \
+    --prefix=/usr/local/ \
     enable-tls1_3 \
     no-shared \
     threads \
@@ -28,15 +26,15 @@ mkdir -p /install/openssl/
     no-ssl3 \
     -DOPENSSL_NO_HEARTBEATS \
     -fstack-protector-strong
-EOF
 
 RUN <<EOF
+mkdir -p /install/openssl/
 make depend -j $(nproc)
 make -j $(nproc)
-make install
+make install DESTDIR=/install/openssl/
 EOF
 
-# Unbound
+# build Unbound
 FROM alpine:3.21 AS unbound
 
 RUN apk add --no-cache \
@@ -49,7 +47,7 @@ RUN apk add --no-cache \
     nghttp2-dev \
     ngtcp2-dev
 
-COPY --from=openssl /install/openssl/ /install/openssl/
+COPY --from=openssl /install/openssl/ /
 
 RUN mkdir -p /working/
 WORKDIR /working/
@@ -64,23 +62,20 @@ EOF
 
 WORKDIR /working/source/
 
-RUN <<EOF
-mkdir -p /install/unbound/
-./configure \
-    --prefix=/install/unbound/ \
-    --with-ssl=/install/openssl/ \
+RUN ./configure \
+    --prefix=/usr/local/ \
     --with-username=unbound \
     --with-pthreads \
     --with-libevent \
     --with-libnghttp2
-EOF
 
 RUN <<EOF
+mkdir -p /install/unbound/
 make -j $(nproc)
-make install
+make install DESTDIR=/install/unbound/
 EOF
 
-# The finally runtime
+# the finally runtime
 FROM alpine:3.21
 
 RUN apk add --no-cache \
@@ -89,9 +84,17 @@ RUN apk add --no-cache \
     nghttp2 \
     ngtcp2
 
-COPY --from=unbound /install/unbound/ /install/unbound/
-
 RUN <<EOF
 addgroup -S unbound
 adduser -S -G unbound unbound
 EOF
+
+COPY --from=unbound /install/unbound/ /
+RUN <<EOF
+mkdir -p /etc/unbound/
+cp /usr/local/etc/unbound/unbound.conf /etc/unbound/unbound.conf
+EOF
+
+COPY ./unbound.sh /usr/local/bin/
+
+ENTRYPOINT [ "/usr/local/bin/unbound.sh" ]
