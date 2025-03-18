@@ -43,7 +43,7 @@ FROM alpine:3.21 AS runtime
 
 RUN apk add --no-cache \
     openssl \
-    expat \
+    libexpat \
     libevent \
     nghttp2
 
